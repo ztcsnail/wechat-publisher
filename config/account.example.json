@@ -1,0 +1,15 @@
+{
+  "account_name": "你的公众号名称",
+  "app_id": "在本机填写，勿发到聊天",
+  "app_secret": "在本机填写，勿发到聊天",
+  "author": "",
+  "need_open_comment": 1,
+  "only_fans_can_comment": 0,
+  "default_collection": "成长",
+  "delivery": "draft",
+  "subject_type": "unknown",
+  "publish_api_available": null,
+  "theme": "editorial",
+  "inline_images": 2,
+  "output_root": "outputs"
+}

@@ -1,0 +1,7 @@
+config/account.json
+config/备份/
+logs/
+outputs/
+__pycache__/
+*.pyc
+.venv/

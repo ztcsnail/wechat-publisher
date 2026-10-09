@@ -1,0 +1,12 @@
+{
+  "title": "文章标题",
+  "author": "",
+  "digest": "文章摘要",
+  "markdown": "article.md",
+  "cover": "图片/cover.png",
+  "theme": "editorial",
+  "need_open_comment": 1,
+  "only_fans_can_comment": 0,
+  "request_original_declaration": true,
+  "collection": "成长"
+}
