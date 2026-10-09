@@ -25,7 +25,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CONFIG = ROOT / "config/account.json"
 OUTPUT = Path(os.environ.get("WECHAT_OUTPUT_ROOT", str(ROOT / "outputs")))
 API = "https://api.weixin.qq.com/cgi-bin/"
-VERSION = "1.1.0"
+VERSION = "1.1.1"
 
 
 class PublisherError(Exception):
@@ -390,10 +390,17 @@ def poll(client, state, state_path, wait=0):
 
 
 def draft_result(state, config, requested_publish=False):
+    collection = state.get("collection") or config.get("default_collection", "")
     actions = ["在微信编辑器完成原创声明，核对后保存"] if state.get("request_original_declaration") else []
-    if state.get("collection"):
-        actions.append("在微信编辑器选择合集：" + state["collection"])
-    return {"ok": True, "published": False, "stage": "draft_ready", "delivery": "draft", "manual_publish_required": True, "draft_media_id": state["draft_media_id"], "title": state["title"], "account_name": config.get("account_name", ""), "backend_url": "https://mp.weixin.qq.com/", "message": "图文已保存到公众号草稿箱，请在后台预览后发表。", "publish_api_available": config.get("publish_api_available"), "publish_requested": requested_publish, "editor_actions": actions}
+    if collection:
+        actions.append("在微信编辑器选择合集：" + collection + "，保存后核对")
+    settings = {
+        "collection": {"requested_name": collection, "selection_verified": False, "status": "requires_backend_selection_and_check" if collection else "not_requested"},
+        "original_declaration": {"requested": bool(state.get("request_original_declaration")), "declaration_verified": False, "status": "requires_backend_setting_and_check" if state.get("request_original_declaration") else "not_requested"},
+    }
+    message = "图文已保存到公众号草稿箱。"
+    message += "发表前还需完成：" + "；".join(actions) + "。" if actions else "请在后台预览后发表。"
+    return {"ok": True, "published": False, "stage": "draft_ready", "delivery": "draft", "draft_saved": True, "editor_settings_complete": not bool(actions), "delivery_status": "awaiting_editor_settings" if actions else "draft_saved", "manual_publish_required": True, "draft_media_id": state["draft_media_id"], "title": state["title"], "account_name": config.get("account_name", ""), "backend_url": "https://mp.weixin.qq.com/", "message": message, "publish_api_available": config.get("publish_api_available"), "publish_requested": requested_publish, "editor_settings": settings, "editor_actions": actions}
 
 
 def api_article(manifest, body, cover_id, updating=False):
@@ -407,6 +414,40 @@ def api_article(manifest, body, cover_id, updating=False):
             crops.append(dict(ratio=ratio, **dict(zip(["x1", "y1", "x2", "y2"], values))))
         article["cover_info"] = {"crop_percent_list": crops}
     return article
+
+
+def manual_publication_result(state, config):
+    result = draft_result(state, config)
+    actions = []
+    if state.get("request_original_declaration"):
+        actions.append("核对已发表文章的原创声明")
+    collection = state.get("collection") or config.get("default_collection", "")
+    if collection:
+        actions.append("在微信后台合集管理中，将已发表文章加入“" + collection + "”并保存核对")
+    result.update(stage="published_manually", delivery="manual_publication", draft_saved=False, published=True, manual_publish_required=False, publication_method="manual", publication_verified=False, publication_evidence="user_confirmation", article_urls=state.get("manual_article_urls", []), editor_actions=actions, message="用户已确认文章在微信后台发表；合集和原创设置仍需后台核对。")
+    return result
+
+
+def record_manual_publication(job, config, article_url=None, state_root=None):
+    """Record an explicit user confirmation; never call a WeChat write endpoint."""
+    job = Path(job).resolve()
+    manifest, _ = checked_job(job)
+    path = journal_path(config, manifest, state_root)
+    if article_url:
+        url = urllib.parse.urlsplit(article_url)
+        if url.scheme != "https" or url.hostname != "mp.weixin.qq.com":
+            raise PublisherError("请提供 https://mp.weixin.qq.com/ 开头的正式文章链接")
+    with locked(path.with_suffix(".lock")):
+        if not path.exists():
+            raise PublisherError("没有可记录人工发表结果的任务")
+        state = read_json(path)
+        if state.get("superseded_by") or state.get("revision_pending") or state.get("publish_id") or state["stage"] not in {"draft_ready", "submit_rejected", "published_manually"}:
+            raise PublisherError("请先核对最新任务与已有发布状态，不能跳过未知结果保护")
+        state.update(stage="published_manually", manual_publication_reported_at=state.get("manual_publication_reported_at", time.time()))
+        if article_url:
+            state["manual_article_urls"] = [article_url]
+        write_json(path, state)
+        return manual_publication_result(state, config)
 
 
 def visible_text(body):
@@ -513,6 +554,8 @@ def run(job, config, publish=False, wait=20, client=None, state_root=None, statu
             raise PublisherError("此草稿已更新为新版本，请使用新任务目录：" + state["superseded_by"])
         if state.get("revision_pending"):
             raise PublisherError("草稿更新结果尚未确认，请在后台核对")
+        if state["stage"] == "published_manually":
+            return manual_publication_result(state, config)
         if state.get("publish_id"):
             result = poll(client, state, state_path, wait)
             result["receipt"] = archive_json(job / "发布记录/result.json", result)
@@ -685,7 +728,7 @@ def doctor(config_path, online=False):
     result = {"ok": all(dependencies.values()), "version": VERSION, "dependencies": dependencies, "configured": Path(config_path).is_file(), "output_root": str(OUTPUT), "live_publication_tested": False}
     if result["configured"]:
         config = load_config(config_path)
-        result.update(account_name=config.get("account_name", ""), delivery=config.get("delivery", "draft"), subject_type=config.get("subject_type", "unknown"), publish_api_available=config.get("publish_api_available"), theme=config.get("theme", "editorial"), author=config.get("author", ""), need_open_comment=config.get("need_open_comment", 1), only_fans_can_comment=config.get("only_fans_can_comment", 0))
+        result.update(account_name=config.get("account_name", ""), delivery=config.get("delivery", "draft"), subject_type=config.get("subject_type", "unknown"), publish_api_available=config.get("publish_api_available"), theme=config.get("theme", "editorial"), author=config.get("author", ""), need_open_comment=config.get("need_open_comment", 1), only_fans_can_comment=config.get("only_fans_can_comment", 0), default_collection=config.get("default_collection", ""), collection_selection_via_api=False, original_declaration_via_api=False)
         if online:
             client = Client(config)
             client.access_token()
@@ -712,6 +755,10 @@ def main():
     revision = commands.add_parser("update-draft")
     revision.add_argument("--job", type=Path, required=True)
     revision.add_argument("--previous-job", type=Path, required=True)
+    manual = commands.add_parser("record-manual-publication")
+    manual.add_argument("--job", type=Path, required=True)
+    manual.add_argument("--confirmed-published", action="store_true", required=True, help="仅在用户明确确认后台已发表后使用")
+    manual.add_argument("--article-url")
     for name in ["run", "status", "reconcile"]:
         sub = commands.add_parser(name)
         sub.add_argument("--job", type=Path, required=True)
@@ -737,6 +784,8 @@ def main():
             result = reconcile(args.job, load_config(args.config), args.draft_id, args.publish_id)
         elif args.command == "update-draft":
             result = update_draft(args.job, args.previous_job, load_config(args.config))
+        elif args.command == "record-manual-publication":
+            result = record_manual_publication(args.job, load_config(args.config), args.article_url)
         else:
             result = run(args.job, load_config(args.config), publish=getattr(args, "publish", False), wait=args.wait, status_only=args.command == "status")
         print(json.dumps(result, ensure_ascii=False, indent=2))

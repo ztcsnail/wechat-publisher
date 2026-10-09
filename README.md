@@ -35,6 +35,16 @@ python src/wechat_publisher.py update-draft --job "新版目录" --previous-job 
 
 作者和开放留言通过草稿接口设置，交付前读回草稿核对。`request_original_declaration`、`collection` 是待办元数据，**原创声明和合集须在微信编辑器设置**，本客户端没有自动设置这两项的能力。转载内容不能自动标为原创。
 
+v1.1.1 明确区分“草稿保存”和“编辑器设置完成”：`draft_saved=true` 不能证明合集已选；`editor_settings_complete=false` 表示还有待后台处理的设置。`doctor` 返回默认合集建议，但不会自动加入合集。
+
+文章已经手动发表时，在用户明确确认后记录状态：
+
+```bash
+python src/wechat_publisher.py record-manual-publication --job "任务目录" --confirmed-published
+```
+
+有正式文章链接时可加 `--article-url "https://mp.weixin.qq.com/s/..."`。此记录的证据来源是用户确认，不是接口发布成功。以后查询不会重新创建或发布该任务。已发表文章漏选合集，应在公众号后台合集管理中添加这篇文章；草稿 ID 无效本身不能证明已经发表。
+
 具备正式发布权限且明确需要发布时：
 
 ```bash
@@ -61,7 +71,7 @@ python src/wechat_publisher.py status --job "任务目录"
 python -m unittest discover -s tests -v
 ```
 
-本版本有 22 项本地/模拟测试，覆盖上传、权限分流、防重复、未知结果冻结和草稿修订。模拟测试不能代替账号真实接口测试。
+本版本有 27 项本地/模拟测试，覆盖上传、权限分流、防重复、未知结果冻结、草稿修订、合集待办和人工发表记录。模拟测试不能代替账号真实接口测试。
 
 流程参考（独立编写客户端，没有复制下列项目的源代码）：
 

@@ -18,3 +18,7 @@ AI 负责写作和使用宿主生图工具；Python 负责确定性排版、上�
 修订先 build 新版本，再 update-draft --job '<新>' --previous-job '<旧>'，复用草稿 ID。后台已有手动正文改动就停止覆盖。写入结果未知或 *_inflight 必须先核对后台，不删日志、不改指纹、不盲目重试。reconcile 只用于已核实的未知草稿创建/发布 ID；未知草稿更新需核对两版后恢复，不能用创建恢复流程绕过。
 
 交付前通过 draft/get 读回标题、作者、留言、封面、正文图片数；分别报告完成项和原创/合集待办。公开代码仅用源文件白名单，不分享本机配置、日志、备份或用户素材。
+
+doctor 返回 default_collection，后续按主题建议已知合集，没有更合适的则用配置中的默认值。合集只有后台选中、保存并核对后才称为已加入；draft_saved=true 不代表 editor_settings_complete=true。未完成项必须在最终交付中明确说明。
+
+用户明确确认已手动发表后，用 record-manual-publication --job '<任务>' --confirmed-published 记录；有链接时加 --article-url。这是用户确认，不能称为接口验证成功。已发表任务不再重建草稿或提交发布；漏选合集时提示到后台合集管理添加已发表文章。草稿 ID 无效本身不能证明已发表。

@@ -205,6 +205,55 @@ class PublicationTests(unittest.TestCase):
         with self.assertRaises(publisher.PublisherError):
             publisher.set_delivery(path, "publish")
 
+    def test_saved_draft_does_not_imply_collection_selected(self):
+        self.config["default_collection"] = "成长"
+        result = self.run_job(self.build(), FakeClient(), publish=False)
+        self.assertTrue(result["draft_saved"])
+        self.assertFalse(result["editor_settings_complete"])
+        self.assertEqual(result["delivery_status"], "awaiting_editor_settings")
+        self.assertEqual(result["editor_settings"]["collection"]["requested_name"], "成长")
+        self.assertFalse(result["editor_settings"]["collection"]["selection_verified"])
+        self.assertTrue(result["editor_actions"])
+
+    def test_article_collection_overrides_account_default_without_api_field(self):
+        self.config["default_collection"] = "成长"
+        data = publisher.read_json(self.source / "article.json")
+        data["collection"] = "读书"
+        publisher.write_json(self.source / "article.json", data)
+        fake = FakeClient()
+        result = self.run_job(self.build(), fake, publish=False)
+        self.assertEqual(result["editor_settings"]["collection"]["requested_name"], "读书")
+        self.assertFalse(result["editor_settings_complete"])
+        self.assertNotIn("collection", fake.article)
+
+    def test_content_only_draft_has_no_pending_editor_settings(self):
+        result = self.run_job(self.build(), FakeClient(), publish=False)
+        self.assertTrue(result["editor_settings_complete"])
+        self.assertEqual(result["editor_actions"], [])
+        self.assertFalse(result["published"])
+
+    def test_confirmed_manual_publication_cannot_create_or_submit_again(self):
+        self.config["default_collection"] = "成长"
+        job = self.build()
+        self.run_job(job, FakeClient(), publish=False)
+        record = publisher.record_manual_publication(job, self.config, state_root=self.state_root)
+        self.assertEqual(record["publication_evidence"], "user_confirmation")
+        self.assertFalse(record["publication_verified"])
+        self.assertFalse(record["manual_publish_required"])
+        fake = FakeClient()
+        result = self.run_job(job, fake)
+        self.assertEqual(result["stage"], "published_manually")
+        self.assertTrue(result["published"])
+        self.assertFalse(result["editor_settings_complete"])
+        self.assertEqual(fake.calls, [])
+
+    def test_manual_confirmation_does_not_bypass_unknown_submission(self):
+        job = self.build()
+        with self.assertRaises(publisher.UnknownResult):
+            self.run_job(job, FakeClient("freepublish/submit"))
+        with self.assertRaises(publisher.PublisherError):
+            publisher.record_manual_publication(job, self.config, state_root=self.state_root)
+
     def revision(self):
         old = self.build()
         self.write_article(self.body + "\n\n补充个人主体的接口限制。")
